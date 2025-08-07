@@ -1,27 +1,50 @@
----
-icon: hand-wave
-layout:
-  width: default
-  title:
-    visible: true
-  description:
-    visible: false
-  tableOfContents:
-    visible: true
-  outline:
-    visible: true
-  pagination:
-    visible: true
-  metadata:
-    visible: true
----
+# Overview & Setup
 
-# Welcome
+## Temporal TypeScript SDK Guide
 
-Welcome to the GitBook starter template! Here you'll get an overview of all the amazing features GitBook offers to help you build beautiful, interactive documentation.
+A comprehensive guide to building production-ready distributed systems with Temporal and TypeScript.
 
-You'll see some of the best parts of GitBook in action — and find help on how you can turn this template into your own.
+### What You'll Learn
 
-### Jump right in
+* Set up Temporal with TypeScript from scratch
+* Build fault-tolerant workflows and activities
+* Handle errors with compensation patterns
+* Test your Temporal applications
+* Deploy to production with confidence
 
-<table data-view="cards"><thead><tr><th></th><th></th><th></th><th data-hidden data-card-cover data-type="files"></th><th data-hidden></th><th data-hidden data-card-target data-type="content-ref"></th></tr></thead><tbody><tr><td><h4><i class="fa-bolt">:bolt:</i></h4></td><td><strong>Quickstart</strong></td><td>Create your first site</td><td></td><td></td><td><a href="getting-started/quickstart.md">quickstart.md</a></td></tr><tr><td><h4><i class="fa-leaf">:leaf:</i></h4></td><td><strong>Editor basics</strong></td><td>Learn the basics of GitBook</td><td></td><td></td><td><a href="https://github.com/GitbookIO/gitbook-templates/blob/main/product-docs/broken-reference/README.md">https://github.com/GitbookIO/gitbook-templates/blob/main/product-docs/broken-reference/README.md</a></td></tr><tr><td><h4><i class="fa-globe-pointer">:globe-pointer:</i></h4></td><td><strong>Publish your docs</strong></td><td>Share your docs online</td><td></td><td></td><td><a href="getting-started/publish-your-docs.md">publish-your-docs.md</a></td></tr></tbody></table>
+### Prerequisites
+
+* Node.js 18+ installed
+* Basic TypeScript knowledge
+* Docker for local development
+
+### Quick Installation
+
+## Clone the example repository <a href="#clone-the-example-repository" id="clone-the-example-repository"></a>
+
+git clone [https://github.com/SaurabhXD72/temporal-sdk-guide.git](https://github.com/SaurabhXD72/temporal-sdk-guide.git)\
+cd temporal-sdk-guide
+
+## Install dependencies <a href="#install-dependencies" id="install-dependencies"></a>
+
+npm install
+
+## Start Temporal server <a href="#start-temporal-server" id="start-temporal-server"></a>
+
+npm run temporal:start
+
+## Run your first workflow <a href="#run-your-first-workflow" id="run-your-first-workflow"></a>
+
+npm run start
+
+### Repository Structure
+
+This guide follows a hands-on approach with real code examples:
+
+* **Basic Examples** - Hello world workflows and activities
+* **Error Handling** - Compensation patterns and saga implementation
+* **Testing** - Unit tests, integration tests, and mocking
+* **Production Patterns** - Signals, queries, and monitoring
+
+Ready to build resilient distributed systems? Let's start! →
+
