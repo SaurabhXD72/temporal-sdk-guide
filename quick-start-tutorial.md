@@ -10,7 +10,7 @@ First, make sure you have Temporal running locally:
 
 ```bash
 # Start Temporal server (in one terminal)
-npm run temporal:start
+temporal server start-dev
 
 # In another terminal, run the worker
 npm run start:worker
@@ -23,20 +23,25 @@ npm run start:client
 
 Activities are the building blocks of Temporal workflows. Here's a simple greeting activity:
 
+{% code title="workflows/hello-workflow.ts" overflow="wrap" %}
 ```typescript
-// From: src/activities.ts
-import { log } from '@temporalio/activity';
 
-export async function greet(name: string): Promise<string> {
-  log.info('Greeting activity started', { name });
-  return `Hello, ${name}!`;
+import { proxyActivities } from '@temporalio/workflow';
+import type * as activities from '../activities/hello-activities';
+
+// Proxy activities with default options
+const { sayHello } = proxyActivities<typeof activities>({
+  startToCloseTimeout: '1 minute',
+});
+
+/** A workflow that demonstrates basic Temporal concepts */
+export async function helloWorkflow(name: string): Promise<string> {
+  const greeting = await sayHello(name);
+  return `Workflow completed: ${greeting}`;
 }
 
-export async function farewell(name: string): Promise<string> {
-  log.info('Farewell activity started', { name });
-  return `Goodbye, ${name}!`;
-}
 ```
+{% endcode %}
 
 **Key Points:**
 

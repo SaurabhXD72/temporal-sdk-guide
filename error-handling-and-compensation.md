@@ -4,206 +4,318 @@ Error Handling & Compensation
 
 Real-world applications need robust error handling. This page demonstrates the **Saga pattern** using your order processing example with compensation workflows.
 
-### The Challenge: Distributed Transactions <a href="#the-challenge-distributed-transactions" id="the-challenge-distributed-transactions"></a>
+### The Business Scenario <a href="#the-business-scenario" id="the-business-scenario"></a>
 
-When building distributed systems, you often need to coordinate multiple services. What happens when one step fails halfway through? The **Saga pattern** provides an elegant solution.
+This repository implements a complete e-commerce order processing system that handles:
 
-### Saga Pattern Implementation <a href="#saga-pattern-implementation" id="saga-pattern-implementation"></a>
+1. **Payment Validation** - Check customer payment methods
+2. **Inventory Reservation** - Lock items for the order
+3. **Shipment Processing** - Arrange delivery
+4. **Customer Notifications** - Confirm success or failure
 
-Your repository demonstrates this with a complete order processing workflow:
+**The Challenge**: If any step fails after others complete, you need automatic **compensation** (rollback) to maintain data consistency.
 
+\
+**Saga Pattern Implementation**
+
+This repository demonstrates this with a complete order processing workflow:
+
+{% code title="examples/02-error-handling/order-processing-workflow.ts" overflow="wrap" %}
 ```tsx
-// From: examples/02-error-handling/workflows/order-saga.ts
-import * as workflow from '@temporalio/workflow';
-import type * as activities from '../activities';
 
-const {
-  processPayment,
-  reserveInventory,
-  createShipment,
-  // Compensation activities
-  refundPayment,
-  releaseInventory,
-  cancelShipment,
-} = workflow.proxyActivities<typeof activities>({
-  startToCloseTimeout: '1 minute',
+import { proxyActivities } from '@temporalio/workflow';
+import type * as activities from './order-activities';
+
+// Configure activity options with retry policies
+const { 
+  validatePayment, 
+  reserveInventory, 
+  processShipment,
+  sendNotification 
+} = proxyActivities<typeof activities>({
+  startToCloseTimeout: '5 minutes',
   retry: {
     initialInterval: '1s',
+    maximumInterval: '30s',
     backoffCoefficient: 2,
     maximumAttempts: 3,
   },
 });
 
-export async function orderSagaWorkflow(orderId: string): Promise<string> {
-  const compensations: (() => Promise<void>)[] = [];
-  
+export interface OrderRequest {
+  orderId: string;
+  customerId: string;
+  items: Array<{ productId: string; quantity: number }>;
+  paymentMethod: string;
+}
+
+export async function orderProcessingWorkflow(order: OrderRequest): Promise<string> {
+  let inventoryReserved = false;
+  let paymentProcessed = false;
+
   try {
-    // Step 1: Process payment
-    await processPayment(orderId);
-    compensations.push(() => refundPayment(orderId));
-    
-    // Step 2: Reserve inventory  
-    await reserveInventory(orderId);
-    compensations.push(() => releaseInventory(orderId));
-    
-    // Step 3: Create shipment
-    await createShipment(orderId);
-    compensations.push(() => cancelShipment(orderId));
-    
-    return `Order ${orderId} processed successfully!`;
-    
+    // Step 1: Validate payment
+    console.log(`Processing order ${order.orderId}`);
+    await validatePayment(order.customerId, order.paymentMethod);
+    paymentProcessed = true;
+
+    // Step 2: Reserve inventory
+    await reserveInventory(order.items);
+    inventoryReserved = true;
+
+    // Step 3: Process shipment
+    await processShipment(order.orderId, order.items);
+
+    // Step 4: Send confirmation
+    await sendNotification(order.customerId, 'ORDER_CONFIRMED', order.orderId);
+
+    return `Order ${order.orderId} processed successfully`;
+
   } catch (error) {
-    // Run compensations in reverse order
-    workflow.log.warn('Order processing failed, running compensations', { 
-      orderId, 
-      error: error.message 
-    });
-    
-    for (const compensation of compensations.reverse()) {
-      try {
-        await compensation();
-      } catch (compensationError) {
-        workflow.log.error('Compensation failed', { 
-          orderId, 
-          compensationError: compensationError.message 
-        });
-      }
+    // Compensation logic - cleanup in reverse order
+    console.log(`Order ${order.orderId} failed, starting compensation...`);
+
+    if (inventoryReserved) {
+      // Release reserved inventory
+      await proxyActivities<typeof activities>({
+        startToCloseTimeout: '2 minutes'
+      }).releaseInventory(order.items);
     }
-    
-    throw new workflow.ApplicationFailure(
-      `Order processing failed: ${error.message}`,
-      'ORDER_PROCESSING_FAILED'
-    );
+
+    if (paymentProcessed) {
+      // Refund payment
+      await proxyActivities<typeof activities>({
+        startToCloseTimeout: '2 minutes'
+      }).refundPayment(order.customerId, order.orderId);
+    }
+
+    // Notify customer of failure
+    await sendNotification(order.customerId, 'ORDER_FAILED', order.orderId);
+
+    throw error; // Re-throw to mark workflow as failed
   }
 }
+
 ```
+{% endcode %}
 
 ### The Activities Implementation <a href="#the-activities-implementation" id="the-activities-implementation"></a>
 
 Here are the business logic activities with built-in failure scenarios:
 
+{% code title="examples/02-error-handling/order-activities.ts" overflow="wrap" %}
 ```typescript
-// From: examples/02-error-handling/activities/order-activities.ts
-import { log } from '@temporalio/activity';
 
-export async function processPayment(orderId: string): Promise<void> {
-  log.info('Processing payment', { orderId });
+export interface InventoryItem {
+  productId: string;
+  quantity: number;
+}
+
+/**
+ * Validates customer payment method
+ * Simulates potential payment failures for demonstration
+ */
+export async function validatePayment(customerId: string, paymentMethod: string): Promise<void> {
+  console.log(`Validating payment for customer ${customerId}`);
   
-  // Simulate payment processing
+  // Simulate processing time
   await new Promise(resolve => setTimeout(resolve, 1000));
   
-  // Simulate random payment failures (20% chance)
-  if (Math.random() < 0.2) {
-    throw new Error('Payment processing failed - insufficient funds');
+  // Simulate 5% failure rate for demonstration
+  if (Math.random() < 0.05) {
+    throw new Error(`Payment validation failed for customer ${customerId}`);
   }
   
-  log.info('Payment processed successfully', { orderId });
+  console.log(`Payment validated for customer ${customerId}`);
 }
 
-export async function reserveInventory(orderId: string): Promise<void> {
-  log.info('Reserving inventory', { orderId });
+/**
+ * Reserves inventory for order items
+ * Demonstrates retry-able business logic
+ */
+export async function reserveInventory(items: InventoryItem[]): Promise<void> {
+  console.log(`Reserving inventory for ${items.length} items`);
   
-  await new Promise(resolve => setTimeout(resolve, 800));
+  await new Promise(resolve => setTimeout(resolve, 1500));
   
-  // Simulate inventory issues (15% chance)
-  if (Math.random() < 0.15) {
-    throw new Error('Inventory reservation failed - out of stock');
+  // Simulate occasional inventory issues
+  if (Math.random() < 0.05) {
+    throw new Error('Insufficient inventory available');
   }
   
-  log.info('Inventory reserved', { orderId });
+  console.log('Inventory reserved successfully');
 }
 
-export async function createShipment(orderId: string): Promise<void> {
-  log.info('Creating shipment', { orderId });
+/**
+ * Processes shipment for the order
+ */
+export async function processShipment(orderId: string, items: InventoryItem[]): Promise<void> {
+  console.log(`Processing shipment for order ${orderId}`);
   
-  await new Promise(resolve => setTimeout(resolve, 1200));
+  await new Promise(resolve => setTimeout(resolve, 2000));
   
-  // Simulate shipping issues (10% chance)
-  if (Math.random() < 0.1) {
-    throw new Error('Shipment creation failed - carrier unavailable');
-  }
+  console.log(`Shipment processed for order ${orderId}`);
+}
+
+/**
+ * Compensation activity: releases reserved inventory
+ */
+export async function releaseInventory(items: InventoryItem[]): Promise<void> {
+  console.log(`Releasing reserved inventory for ${items.length} items`);
   
-  log.info('Shipment created', { orderId });
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  console.log('Inventory released successfully');
 }
 
-// Compensation Activities
-export async function refundPayment(orderId: string): Promise<void> {
-  log.info('COMPENSATION: Refunding payment', { orderId });
-  await new Promise(resolve => setTimeout(resolve, 500));
-  log.info('Payment refunded', { orderId });
+/**
+ * Compensation activity: refunds customer payment
+ */
+export async function refundPayment(customerId: string, orderId: string): Promise<void> {
+  console.log(`Processing refund for customer ${customerId}, order ${orderId}`);
+  
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  
+  console.log(`Refund processed for order ${orderId}`);
 }
 
-export async function releaseInventory(orderId: string): Promise<void> {
-  log.info('COMPENSATION: Releasing inventory', { orderId });
-  await new Promise(resolve => setTimeout(resolve, 300));
-  log.info('Inventory released', { orderId });
-}
-
-export async function cancelShipment(orderId: string): Promise<void> {
-  log.info('COMPENSATION: Cancelling shipment', { orderId });
-  await new Promise(resolve => setTimeout(resolve, 400));
-  log.info('Shipment cancelled', { orderId });
-}
 ```
+{% endcode %}
 
-### Testing Error Scenarios <a href="#testing-error-scenarios" id="testing-error-scenarios"></a>
+### Testing Your Error Handling <a href="#testing-your-error-handling" id="testing-your-error-handling"></a>
 
-Run your saga with built-in failure simulation:
+This repository includes a test client to demonstrate the saga pattern:
+
+{% code title="examples/02-error-handling/test-client.ts" overflow="wrap" %}
+```typescript
+
+import { Client } from '@temporalio/client';
+import { orderProcessingWorkflow, OrderRequest } from './order-processing-workflow';
+
+async function runOrderTest() {
+  const client = new Client();
+
+  const successOrder: OrderRequest = {
+    orderId: `order-${Date.now()}`,
+    customerId: 'cust-123',
+    items: [
+      { productId: 'prod-1', quantity: 2 },
+      { productId: 'prod-2', quantity: 1 }
+    ],
+    paymentMethod: 'credit-card'
+  };
+
+  console.log('🧪 Testing order processing...');
+  
+  try {
+    const handle = await client.workflow.start(orderProcessingWorkflow, {
+      taskQueue: 'order-processing',
+      workflowId: `order-test-${Date.now()}`,
+      args: [successOrder],
+    });
+
+    console.log(`🚀 Started workflow ${handle.workflowId}`);
+    
+    const result = await handle.result();
+    console.log(`✅ Success: ${result}`);
+  } catch (error) {
+    console.log(`❌ Failed: ${error}`);
+  }
+}
+
+runOrderTest().catch(console.error);
+```
+{% endcode %}
+
+### Running Your Implementation <a href="#running-your-implementation" id="running-your-implementation"></a>
+
+Test the error handling and compensation logic:
 
 ```bash
-# Start the worker
-npm run start:saga-worker
+# Make sure your worker is running
+npm run start:worker
 
-# In another terminal, trigger the saga
-npm run start:saga-client
+# In another terminal, run the order test
+npx ts-node examples/02-error-handling/test-client.ts
 ```
 
-### Key Error Handling Patterns <a href="#key-error-handling-patterns" id="key-error-handling-patterns"></a>
+### What You'll Observe <a href="#what-youll-observe" id="what-youll-observe"></a>
 
-### 1. Retry Policies
+**Successful Order Processing:**
 
-```typescript
-retry: {
-  initialInterval: '1s',
-  backoffCoefficient: 2,
-  maximumAttempts: 3,
+```
+text🧪 Testing order processing...
+🚀 Started workflow order-test-1697123456789
+Processing order order-1697123456789
+Validating payment for customer cust-123
+Payment validated for customer cust-123
+Reserving inventory for 2 items
+Inventory reserved successfully
+Processing shipment for order order-1697123456789
+Shipment processed for order order-1697123456789
+✅ Success: Order order-1697123456789 processed successfully
+```
+
+**Failed Order with Compensation:**
+
+```
+text🧪 Testing order processing...
+🚀 Started workflow order-test-1697123456790
+Processing order order-1697123456790
+Validating payment for customer cust-123
+Payment validated for customer cust-123
+Reserving inventory for 2 items
+Insufficient inventory available
+Order order-1697123456790 failed, starting compensation...
+Processing refund for customer cust-123, order order-1697123456790
+Refund processed for order order-1697123456790
+❌ Failed: Error: Insufficient inventory available
+```
+
+### Key Patterns in Your Implementation <a href="#key-patterns-in-your-implementation" id="key-patterns-in-your-implementation"></a>
+
+### 1. State Tracking
+
+```
+typescriptlet inventoryReserved = false;
+let paymentProcessed = false;
+```
+
+Track which steps completed to determine what needs compensation.
+
+### 2. Reverse Order Compensation
+
+```
+typescript// Compensations run in reverse order
+if (inventoryReserved) {
+  await releaseInventory(order.items);
+}
+if (paymentProcessed) {
+  await refundPayment(order.customerId, order.orderId);
 }
 ```
 
-### 2. Compensation Tracking
+### 3. Retry Configuration
 
-* Build a list of compensations as you progress
-* Execute compensations in **reverse order** on failure
-* Handle compensation failures gracefully
-
-### 3. Structured Error Handling
-
-```typescript
-throw new workflow.ApplicationFailure(
-  'Descriptive error message',
-  'ERROR_TYPE_CODE'
-);
-```
-
-### Observability in Action <a href="#observability-in-action" id="observability-in-action"></a>
-
-When failures occur, you'll see clear compensation logs:
+This implementation includes sophisticated retry policies:
 
 ```
-INFO: Processing payment { orderId: 'ORD-123' }
-INFO: Payment processed successfully { orderId: 'ORD-123' }
-INFO: Reserving inventory { orderId: 'ORD-123' }
-ERROR: Inventory reservation failed - out of stock
-WARN: Order processing failed, running compensations { orderId: 'ORD-123' }
-INFO: COMPENSATION: Refunding payment { orderId: 'ORD-123' }
-INFO: Payment refunded { orderId: 'ORD-123' }
+typescriptretry: {
+  initialInterval: '1s',      // Start with 1 second delay
+  maximumInterval: '30s',     // Max 30 seconds between retries
+  backoffCoefficient: 2,      // Double delay each retry
+  maximumAttempts: 3,         // Try up to 3 times
+}
 ```
 
-### Why This Approach Works <a href="#why-this-approach-works" id="why-this-approach-works"></a>
+### Why This Implementation Works <a href="#why-this-implementation-works" id="why-this-implementation-works"></a>
 
 * **Automatic retries** for transient failures
 * **Consistent state** through compensations
-* **Clear error tracking** with structured logging
+* **Clear error tracking** with console logging
 * **Business continuity** even when services fail
+* **Production-ready** error handling patterns
+
+This saga implementation demonstrates enterprise-level distributed transaction handling with Temporal!
 
 Ready to learn how to test these complex workflows? Let's dive into testing strategies! --->

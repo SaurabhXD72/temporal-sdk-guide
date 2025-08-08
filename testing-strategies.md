@@ -10,270 +10,221 @@ Temporal applications have three main testing layers:
 2. **Integration Tests** - Test workflows with real Temporal server
 3. **End-to-End Tests** - Test complete business scenarios
 
-### Unit Testing Activities <a href="#unit-testing-activities" id="unit-testing-activities"></a>
+### Workflow Unit Testing <a href="#workflow-unit-testing" id="workflow-unit-testing"></a>
 
-Activities are the easiest to test since they're just functions:
+The repository includes comprehensive workflow tests using Temporal's testing framework:
 
+{% code title="examples/03-testing/integration-test.ts" overflow="wrap" %}
 ```typescript
-// From: examples/03-testing/tests/activities.test.ts
-import { greet, processPayment } from '../activities/order-activities';
-
-describe('Order Activities', () => {
-  test('greet returns formatted greeting', async () => {
-    const result = await greet('Alice');
-    expect(result).toBe('Hello, Alice!');
-  });
-
-  test('processPayment handles valid orders', async () => {
-    const orderId = 'ORDER-123';
-    await expect(processPayment(orderId)).resolves.not.toThrow();
-  });
-
-  test('processPayment throws on invalid orders', async () => {
-    const invalidOrderId = 'INVALID';
-    await expect(processPayment(invalidOrderId)).rejects.toThrow('Invalid order');
-  });
-});
-```
-
-### Testing Workflows with TestWorkflowEnvironment <a href="#testing-workflows-with-testworkflowenvironment" id="testing-workflows-with-testworkflowenvironment"></a>
-
-For workflow testing, use Temporal's test environment:
-
-```typescript
-// From: examples/03-testing/tests/workflows.test.ts
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
-import { WorkflowClient } from '@temporalio/client';
-import { helloWorkflow } from '../workflows';
-import * as activities from '../activities';
+import { orderProcessingWorkflow, OrderRequest } from '../02-error-handling/order-processing-workflow';
+import * as activities from '../02-error-handling/order-activities';
 
-describe('Hello Workflow', () => {
+/**
+ * Unit tests for order processing workflow
+ * Demonstrates Temporal's time-skipping and mocking capabilities
+ */
+describe('Order Processing Workflow', () => {
   let testEnv: TestWorkflowEnvironment;
-  let worker: Worker;
-  let client: WorkflowClient;
 
   beforeAll(async () => {
+    // Create test environment with time skipping
     testEnv = await TestWorkflowEnvironment.createTimeSkipping();
-    
-    worker = await Worker.create({
-      connection: testEnv.nativeConnection,
-      taskQueue: 'test-queue',
-      workflowsPath: require.resolve('../workflows'),
-      activities,
-    });
-
-    client = testEnv.client;
   });
 
   afterAll(async () => {
-    await worker?.shutdown();
     await testEnv?.teardown();
   });
 
-  test('helloWorkflow executes successfully', async () => {
-    const result = await client.execute(helloWorkflow, {
-      workflowId: 'test-hello-workflow',
+  it('should process successful order', async () => {
+    const { client, nativeConnection } = testEnv;
+    
+    // Create worker for testing
+    const worker = await Worker.create({
+      connection: nativeConnection,
       taskQueue: 'test-queue',
-      args: ['World'],
+      workflowsPath: require.resolve('../02-error-handling/order-processing-workflow'),
+      activities,
     });
 
-    expect(result).toBe('Hello, World! Goodbye, World!');
-  });
-});
-```
-
-### Mocking Activities in Workflow Tests <a href="#mocking-activities-in-workflow-tests" id="mocking-activities-in-workflow-tests"></a>
-
-Sometimes you want to test workflow logic without running real activities:
-
-```typescript
-// From: examples/03-testing/tests/mocked-workflows.test.ts
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { Worker } from '@temporalio/worker';
-import { orderSagaWorkflow } from '../workflows/order-saga';
-
-describe('Order Saga with Mocked Activities', () => {
-  let testEnv: TestWorkflowEnvironment;
-  let worker: Worker;
-
-  beforeAll(async () => {
-    testEnv = await TestWorkflowEnvironment.createTimeSkipping();
-    
-    // Mock activities
-    const mockActivities = {
-      processPayment: jest.fn().mockResolvedValue(undefined),
-      reserveInventory: jest.fn().mockResolvedValue(undefined),
-      createShipment: jest.fn().mockResolvedValue(undefined),
-      refundPayment: jest.fn().mockResolvedValue(undefined),
-      releaseInventory: jest.fn().mockResolvedValue(undefined),
-      cancelShipment: jest.fn().mockResolvedValue(undefined),
+    const testOrder: OrderRequest = {
+      orderId: 'test-order-123',
+      customerId: 'test-customer',
+      items: [{ productId: 'test-product', quantity: 1 }],
+      paymentMethod: 'test-card'
     };
 
-    worker = await Worker.create({
-      connection: testEnv.nativeConnection,
-      taskQueue: 'test-saga-queue',
-      workflowsPath: require.resolve('../workflows'),
-      activities: mockActivities,
+    // Execute workflow in test environment
+    await worker.runUntil(async () => {
+      const handle = await client.workflow.start(orderProcessingWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'test-successful-order',
+        args: [testOrder],
+      });
+
+      const result = await handle.result();
+      expect(result).toBe('Order test-order-123 processed successfully');
     });
   });
 
-  test('saga completes successfully with valid order', async () => {
-    const result = await testEnv.client.execute(orderSagaWorkflow, {
-      workflowId: 'test-saga-success',
-      taskQueue: 'test-saga-queue',
-      args: ['ORDER-123'],
-    });
-
-    expect(result).toContain('processed successfully');
-  });
-
-  test('saga runs compensations on failure', async () => {
-    // Mock inventory failure
+  it('should handle payment failure with compensation', async () => {
+    const { client, nativeConnection } = testEnv;
+    
+    // Mock activities to force payment failure
     const mockActivities = {
-      processPayment: jest.fn().mockResolvedValue(undefined),
-      reserveInventory: jest.fn().mockRejectedValue(new Error('Out of stock')),
-      refundPayment: jest.fn().mockResolvedValue(undefined),
+      ...activities,
+      validatePayment: jest.fn().mockRejectedValue(new Error('Payment failed')),
+      sendNotification: jest.fn().mockResolvedValue(undefined),
     };
 
     const worker = await Worker.create({
-      connection: testEnv.nativeConnection,
-      taskQueue: 'test-saga-failure',
-      workflowsPath: require.resolve('../workflows'),
+      connection: nativeConnection,
+      taskQueue: 'test-queue',
+      workflowsPath: require.resolve('../02-error-handling/order-processing-workflow'),
       activities: mockActivities,
     });
 
-    await expect(
-      testEnv.client.execute(orderSagaWorkflow, {
-        workflowId: 'test-saga-failure',
-        taskQueue: 'test-saga-failure',
-        args: ['ORDER-456'],
-      })
-    ).rejects.toThrow('Out of stock');
+    const testOrder: OrderRequest = {
+      orderId: 'test-order-456',
+      customerId: 'test-customer',
+      items: [{ productId: 'test-product', quantity: 1 }],
+      paymentMethod: 'invalid-card'
+    };
 
-    // Verify compensation was called
-    expect(mockActivities.refundPayment).toHaveBeenCalledWith('ORDER-456');
-  });
-});
-```
+    await worker.runUntil(async () => {
+      const handle = await client.workflow.start(orderProcessingWorkflow, {
+        taskQueue: 'test-queue',
+        workflowId: 'test-payment-failure',
+        args: [testOrder],
+      });
 
-### Testing Time-Based Workflows <a href="#testing-time-based-workflows" id="testing-time-based-workflows"></a>
-
-Temporal's test environment can skip time for testing timeouts and schedules:
-
-```typescript
-// From: examples/03-testing/tests/time-workflows.test.ts
-import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { delayedWorkflow } from '../workflows/delayed-workflow';
-
-describe('Time-based Workflows', () => {
-  let testEnv: TestWorkflowEnvironment;
-
-  beforeAll(async () => {
-    // Time-skipping environment for fast testing
-    testEnv = await TestWorkflowEnvironment.createTimeSkipping();
-  });
-
-  test('workflow waits for specified duration', async () => {
-    const startTime = Date.now();
-    
-    await testEnv.client.execute(delayedWorkflow, {
-      workflowId: 'test-delayed',
-      taskQueue: 'test-queue',
-      args: ['5 minutes'], // This will complete instantly in tests
+      // Expect workflow to fail
+      await expect(handle.result()).rejects.toThrow('Payment failed');
+      
+      // Verify compensation notification was sent
+      expect(mockActivities.sendNotification).toHaveBeenCalledWith(
+        'test-customer',
+        'ORDER_FAILED',
+        'test-order-456'
+      );
     });
-    
-    const endTime = Date.now();
-    
-    // Should complete almost instantly due to time skipping
-    expect(endTime - startTime).toBeLessThan(1000);
   });
 });
+
 ```
+{% endcode %}
 
-### Running Your Tests <a href="#running-your-tests" id="running-your-tests"></a>
 
-Your repository includes comprehensive test scripts:
-
-```bash
-# Run all tests
-npm run test
-
-# Run tests with coverage
-npm run test:coverage
-
-# Run only unit tests
-npm run test:unit
-
-# Run only integration tests  
-npm run test:integration
-
-# Watch mode for development
-npm run test:watch
-```
 
 ### Test Configuration <a href="#test-configuration" id="test-configuration"></a>
 
-Jest configuration for Temporal projects:
+The repository includes Jest configuration optimized for Temporal testing:
 
-```javascript
-// From: jest.config.js
-{
-  "preset": "ts-jest",
-  "testEnvironment": "node",
-  "testMatch": [
-    "**/__tests__/**/*.ts",
-    "**/?(*.)+(spec|test).ts"
-  ],
-  "collectCoverageFrom": [
-    "src/**/*.ts",
-    "examples/**/*.ts",
-    "!**/*.d.ts"
-  ],
-  "coverageThreshold": {
-    "global": {
-      "branches": 80,
-      "functions": 80,
-      "lines": 80,
-      "statements": 80
-    }
-  }
-}
+{% code title="jest.config.ts" overflow="wrap" %}
+```typescript
+module.exports = {
+    preset: 'ts-jest',
+    testEnvironment: 'node',
+    testMatch: ['**/*.(test|spec).ts'],
+    // testMatch: ['**/?(*.)+(test|spec|workflow-tests).ts'],
+
+    collectCoverageFrom: [
+      'src/**/*.ts',
+      'examples/**/*.ts',
+      '!**/*.d.ts',
+    ],
+    setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
+    testTimeout: 30000,
+  };
+  
 ```
+{% endcode %}
 
-### Key Testing Principles <a href="#key-testing-principles" id="key-testing-principles"></a>
+### Running the Tests <a href="#running-the-tests" id="running-the-tests"></a>
 
-### Test Pyramid Structure
+The repository includes comprehensive test scripts:
 
-* **Many unit tests** for activities
-* **Some integration tests** for workflows
-* **Few end-to-end tests** for complete scenarios
+{% code overflow="wrap" %}
+```bash
+# Run all tests
+npm test
 
-### Use Test Environment
+# Run tests with coverage reporting
+npm run test:coverage
 
-* Time-skipping for fast execution
-* Isolated test runs
-* Deterministic results
+# Run tests in watch mode for development
+npm run test:watch
 
-### Mock External Dependencies
+# Run integration tests against real server
+npm run test:integration
+```
+{% endcode %}
 
-* Database calls
-* HTTP requests
-* Third-party services
+### Key Testing Patterns Demonstrated <a href="#key-testing-patterns-demonstrated" id="key-testing-patterns-demonstrated"></a>
 
-### Test Error Scenarios
+### 1. Time-Skipping Environment
 
-* Activity failures
-* Timeout handling
-* Compensation logic
+{% code overflow="wrap" %}
+```typescript
+// Create test environment that can skip time
+testEnv = await TestWorkflowEnvironment.createTimeSkipping();
+```
+{% endcode %}
 
-### Debugging Test Failures <a href="#debugging-test-failures" id="debugging-test-failures"></a>
+This allows tests to complete instantly even if workflows contain delays.
 
-When tests fail, check:
+### 2. Activity Mocking
 
-1. **Workflow history** in Temporal Web UI
-2. **Activity logs** for error details
-3. **Test environment setup**
-4. **Mock configurations**
+{% code overflow="wrap" %}
+```typescript
+// Mock specific activities to test error scenarios
+const mockActivities = {
+  ...activities,
+  validatePayment: jest.fn().mockRejectedValue(new Error('Payment failed')),
+};
+```
+{% endcode %}
+
+### 3. Compensation Verification
+
+{% code overflow="wrap" %}
+```typescript
+// Verify compensation activities were called
+expect(mockActivities.sendNotification).toHaveBeenCalledWith(
+  'test-customer',
+  'ORDER_FAILED',
+  'test-order-456'
+);
+```
+{% endcode %}
+
+### 4. Integration Test Structure
+
+{% code overflow="wrap" %}
+```typescript
+// Test against real Temporal server
+const client = new Client();
+const handle = await client.workflow.start(orderProcessingWorkflow, {
+  taskQueue: 'order-processing',
+  workflowId: `integration-${Date.now()}`,
+  args: [testOrder],
+});
+```
+{% endcode %}
+
+### Testing Benefits <a href="#testing-benefits" id="testing-benefits"></a>
+
+* **Fast execution** - Time-skipping eliminates real delays
+* **Deterministic results** - Same outcome every run
+* **Error scenario coverage** - Test both success and failure paths
+* **Integration confidence** - End-to-end validation against real server
+
+### Best Practices Demonstrated <a href="#best-practices-demonstrated" id="best-practices-demonstrated"></a>
+
+1. **Separate unit and integration tests** for different validation levels
+2. **Mock external dependencies** to isolate workflow logic
+3. **Test compensation logic** to ensure proper error handling
+4. **Use descriptive test names** that explain the scenario being tested
 
 Ready to learn production deployment patterns? Let's explore signals, queries, and monitoring!

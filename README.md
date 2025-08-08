@@ -29,10 +29,14 @@ cd temporal-sdk-guide
 npm install
 
 # Start Temporal server
-npm run temporal:start
+temporal server start-dev
 
-# Run your first workflow
-npm run start
+# Start the worker(in separate workflow)
+npm run start:worker
+
+# Run your first workflow(in separate workflow)
+npm run start:client
+
 ```
 
 ### Repository Structure <a href="#repository-structure" id="repository-structure"></a>

@@ -1,419 +1,440 @@
 # Production Patterns
 
-Ready for production? This page covers advanced Temporal patterns using real-world examples from your repository: signals, queries, monitoring, and deployment strategies.
+Production workflows require real-time communication with external systems. This page demonstrates advanced Temporal patterns using signals, queries, and production-ready configurations from the repository.
 
-### Signals: Dynamic Workflow Communication <a href="#signals-dynamic-workflow-communication" id="signals-dynamic-workflow-communication"></a>
+### Signals and Queries Overview <a href="#signals-and-queries-overview" id="signals-and-queries-overview"></a>
 
-Signals allow external systems to send data to running workflows. Perfect for user interactions, status updates, and dynamic control flow.
+Production systems need:
 
+* **Dynamic updates** during execution (order cancellations, priority changes)
+* **Status monitoring** for dashboards and APIs
+* **External event handling** (user actions, system events)
+
+Temporal provides **signals** for sending data to workflows and **queries** for reading workflow state in real-time.
+
+### Order Management with Real-Time Updates <a href="#order-management-with-real-time-updates" id="order-management-with-real-time-updates"></a>
+
+The repository implements a complete order management system with signals and queries:
+
+{% code title="examples/04-production-patterns/order-management-workflow.ts" overflow="wrap" %}
 ```typescript
-// From: examples/04-production-patterns/workflows/interactive-workflow.ts
-import * as workflow from '@temporalio/workflow';
+import { defineSignal, defineQuery, setHandler, condition, proxyActivities, sleep } from '@temporalio/workflow';
+import type * as activities from './management-activities';
 
-interface OrderState {
+// Define external communication interfaces
+export const cancelOrderSignal = defineSignal<[string]>('cancelOrder');
+export const updateOrderSignal = defineSignal<[string, any]>('updateOrder');
+export const getOrderStatusQuery = defineQuery<string>('getOrderStatus');
+export const getOrderUpdatesQuery = defineQuery<string[]>('getOrderUpdates');
+
+// Configure activities
+const { 
+  processPayment, 
+  fulfillOrder, 
+  cancelOrder, 
+  sendOrderNotification 
+} = proxyActivities<typeof activities>({
+  startToCloseTimeout: '5 minutes',
+  retry: { maximumAttempts: 3 }
+});
+
+interface Order {
   orderId: string;
-  status: 'pending' | 'approved' | 'rejected' | 'completed';
-  approvedBy?: string;
-  rejectedReason?: string;
+  status: 'PENDING' | 'PROCESSING' | 'FULFILLED' | 'CANCELLED';
+  customerId: string;
+  items: Array<{ id: string; quantity: number }>;
+  updates: string[];
 }
 
-export async function interactiveOrderWorkflow(orderId: string): Promise<string> {
-  const state: OrderState = {
-    orderId,
-    status: 'pending'
+/**
+ * Production-ready order management workflow with signals and queries
+ * Demonstrates real-time communication patterns
+ */
+export async function orderManagementWorkflow(initialOrder: Omit<Order, 'status' | 'updates'>): Promise<string> {
+  // Initialize order state
+  let order: Order = {
+    ...initialOrder,
+    status: 'PENDING',
+    updates: ['Order created']
   };
 
-  // Define signals
-  const approveSignal = workflow.defineSignal<[string]>('approve');
-  const rejectSignal = workflow.defineSignal<[string]>('reject');
-  
-  // Set signal handlers
-  workflow.setHandler(approveSignal, (approvedBy: string) => {
-    state.status = 'approved';
-    state.approvedBy = approvedBy;
-  });
-  
-  workflow.setHandler(rejectSignal, (reason: string) => {
-    state.status = 'rejected';
-    state.rejectedReason = reason;
-  });
+  let shouldCancel = false;
+  let cancellationReason = '';
 
-  workflow.log.info('Order workflow started, waiting for approval', { orderId });
-
-  // Wait for approval or rejection
-  await workflow.condition(() => state.status !== 'pending');
-
-  if (state.status === 'approved') {
-    workflow.log.info('Order approved, processing', { 
-      orderId, 
-      approvedBy: state.approvedBy 
-    });
-    
-    // Continue with order processing
-    await workflow.proxyActivities({
-      startToCloseTimeout: '5 minutes',
-    }).processApprovedOrder(orderId);
-    
-    state.status = 'completed';
-    return `Order ${orderId} completed successfully!`;
-  } else {
-    workflow.log.info('Order rejected', { 
-      orderId, 
-      reason: state.rejectedReason 
-    });
-    
-    throw new workflow.ApplicationFailure(
-      `Order rejected: ${state.rejectedReason}`,
-      'ORDER_REJECTED'
-    );
-  }
-}
-```
-
-### Queries: Real-time Workflow State <a href="#queries-real-time-workflow-state" id="queries-real-time-workflow-state"></a>
-
-Queries let you peek into running workflows without affecting their execution:
-
-```typescript
-// From: examples/04-production-patterns/workflows/queryable-workflow.ts
-import * as workflow from '@temporalio/workflow';
-
-interface WorkflowProgress {
-  currentStep: string;
-  completedSteps: string[];
-  progress: number;
-  estimatedCompletion: Date;
-}
-
-export async function trackableWorkflow(taskId: string): Promise<string> {
-  const progress: WorkflowProgress = {
-    currentStep: 'initializing',
-    completedSteps: [],
-    progress: 0,
-    estimatedCompletion: new Date(Date.now() + 10 * 60 * 1000) // 10 min estimate
-  };
-
-  // Define query
-  const getProgressQuery = workflow.defineQuery<WorkflowProgress>('getProgress');
-  workflow.setHandler(getProgressQuery, () => progress);
-
-  const steps = ['validate', 'process', 'analyze', 'generate', 'complete'];
-  
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i];
-    progress.currentStep = step;
-    progress.progress = Math.round((i / steps.length) * 100);
-    
-    workflow.log.info('Starting step', { taskId, step, progress: progress.progress });
-    
-    // Simulate work
-    await workflow.proxyActivities({
-      startToCloseTimeout: '2 minutes',
-    }).processStep(taskId, step);
-    
-    progress.completedSteps.push(step);
-    
-    // Update estimated completion
-    const remainingSteps = steps.length - i - 1;
-    const avgTimePerStep = 2 * 60 * 1000; // 2 minutes per step
-    progress.estimatedCompletion = new Date(Date.now() + (remainingSteps * avgTimePerStep));
-  }
-  
-  progress.currentStep = 'completed';
-  progress.progress = 100;
-  
-  return `Task ${taskId} completed successfully!`;
-}
-```
-
-### Client Usage: Signals and Queries <a href="#client-usage-signals-and-queries" id="client-usage-signals-and-queries"></a>
-
-Here's how external systems interact with your workflows:
-
-```typescript
-// From: examples/04-production-patterns/client/interactive-client.ts
-import { Connection, WorkflowClient } from '@temporalio/client';
-import { interactiveOrderWorkflow, trackableWorkflow } from '../workflows';
-
-async function runInteractiveExample() {
-  const connection = await Connection.connect({ address: 'localhost:7233' });
-  const client = new WorkflowClient({ connection });
-
-  // Start interactive workflow
-  const orderHandle = await client.start(interactiveOrderWorkflow, {
-    taskQueue: 'production-queue',
-    workflowId: `order-${Date.now()}`,
-    args: ['ORDER-12345'],
-  });
-
-  console.log(`Started interactive workflow: ${orderHandle.workflowId}`);
-
-  // Simulate external approval after 5 seconds
-  setTimeout(async () => {
-    await orderHandle.signal('approve', 'manager@company.com');
-    console.log('Order approved via signal!');
-  }, 5000);
-
-  const result = await orderHandle.result();
-  console.log('Final result:', result);
-}
-
-async function queryWorkflowProgress() {
-  const connection = await Connection.connect({ address: 'localhost:7233' });
-  const client = new WorkflowClient({ connection });
-
-  // Start trackable workflow
-  const taskHandle = await client.start(trackableWorkflow, {
-    taskQueue: 'production-queue',
-    workflowId: `task-${Date.now()}`,
-    args: ['TASK-67890'],
-  });
-
-  // Query progress every 2 seconds
-  const progressInterval = setInterval(async () => {
-    try {
-      const progress = await taskHandle.query('getProgress');
-      console.log(`Progress: ${progress.progress}% - ${progress.currentStep}`);
-      console.log(`ETA: ${progress.estimatedCompletion.toLocaleTimeString()}`);
-      
-      if (progress.progress === 100) {
-        clearInterval(progressInterval);
-      }
-    } catch (error) {
-      console.error('Query failed:', error);
-      clearInterval(progressInterval);
+  // Handle cancel signal
+  setHandler(cancelOrderSignal, (reason: string) => {
+    if (order.status !== 'FULFILLED') {
+      shouldCancel = true;
+      cancellationReason = reason;
+      order.updates.push(`Cancellation requested: ${reason}`);
     }
-  }, 2000);
-
-  const result = await taskHandle.result();
-  console.log('Task completed:', result);
-}
-```
-
-### Advanced Activity Patterns <a href="#advanced-activity-patterns" id="advanced-activity-patterns"></a>
-
-Production activities with retry policies, heartbeats, and cancellation:
-
-```typescript
-// From: examples/04-production-patterns/activities/production-activities.ts
-import { 
-  Context, 
-  log, 
-  heartbeat, 
-  cancelled,
-  ActivityCancellationType 
-} from '@temporalio/activity';
-
-export async function processLargeDataset(datasetId: string): Promise<string> {
-  const context = Context.current();
-  
-  // Configure cancellation
-  context.configure({
-    cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
   });
 
-  log.info('Starting large dataset processing', { datasetId });
-  
-  const totalItems = 10000; // Simulate large dataset
-  
+  // Handle update signal
+  setHandler(updateOrderSignal, (field: string, value: any) => {
+    order.updates.push(`Updated ${field} to ${value}`);
+  });
+
+  // Handle status query
+  setHandler(getOrderStatusQuery, () => order.status);
+
+  // Handle updates query
+  setHandler(getOrderUpdatesQuery, () => order.updates);
+
   try {
-    for (let i = 0; i < totalItems; i++) {
-      // Check for cancellation
-      if (await cancelled()) {
-        log.warn('Processing cancelled by user', { datasetId, processed: i });
-        throw new Error('Processing cancelled');
-      }
-      
-      // Process item (simulate work)
-      await new Promise(resolve => setTimeout(resolve, 10));
-      
-      // Send heartbeat every 100 items
-      if (i % 100 === 0) {
-        heartbeat(`Processed ${i}/${totalItems} items`);
-        log.info('Progress update', { 
-          datasetId, 
-          processed: i, 
-          total: totalItems,
-          percentage: Math.round((i / totalItems) * 100)
-        });
-      }
+    // Step 1: Payment processing
+    order.status = 'PROCESSING';
+    order.updates.push('Processing payment...');
+
+    // Check for cancellation before each major step
+    if (shouldCancel) {
+      await cancelOrder(order.orderId, cancellationReason);
+      order.status = 'CANCELLED';
+      return `Order ${order.orderId} cancelled: ${cancellationReason}`;
     }
+
+    await processPayment(order.orderId, order.customerId);
+    order.updates.push('Payment processed successfully');
+
+    // Step 2: Fulfillment (with cancellation check)
+    order.updates.push('Starting fulfillment...');
     
-    log.info('Dataset processing completed', { datasetId, totalItems });
-    return `Successfully processed ${totalItems} items for dataset ${datasetId}`;
+    // Wait for fulfillment or cancellation (whichever comes first)
+    const fulfillmentPromise = fulfillOrder(order.orderId, order.items);
+    const cancellationPromise = condition(() => shouldCancel);
+
+    await Promise.race([fulfillmentPromise, cancellationPromise]);
+
+    if (shouldCancel) {
+      await cancelOrder(order.orderId, cancellationReason);
+      order.status = 'CANCELLED';
+      await sendOrderNotification(order.customerId, 'Order cancelled', order.orderId);
+      return `Order ${order.orderId} cancelled during fulfillment: ${cancellationReason}`;
+    }
+
+    // Wait for fulfillment to complete if not cancelled
+    await fulfillmentPromise;
+
+    // Success path
+    order.status = 'FULFILLED';
+    order.updates.push('Order fulfilled successfully');
     
+    await sendOrderNotification(order.customerId, 'Order completed', order.orderId);
+    
+    return `Order ${order.orderId} completed successfully`;
+
   } catch (error) {
-    log.error('Dataset processing failed', { 
-      datasetId, 
-      error: error.message 
-    });
+    order.status = 'CANCELLED';
+    order.updates.push(`Error: ${error}`);
+    await sendOrderNotification(order.customerId, 'Order failed', order.orderId);
     throw error;
   }
 }
+
 ```
+{% endcode %}
 
-### Production Configuration <a href="#production-configuration" id="production-configuration"></a>
+### Production Activities Implementation <a href="#production-activities-implementation" id="production-activities-implementation"></a>
 
-Environment-specific worker configuration:
+The repository includes production-ready activities that handle the actual business operations:
 
+{% code title="examples/04-production-patterns/management-activities.ts" overflow="wrap" %}
 ```typescript
-// From: examples/04-production-patterns/worker/production-worker.ts
-import { Worker } from '@temporalio/worker';
-import { getEnv } from '../config/environment';
 
-async function createProductionWorker() {
-  const env = getEnv();
+
+export async function processPayment(orderId: string, customerId: string): Promise<void> {
+    console.log(`💳 Processing payment for order ${orderId}, customer ${customerId}`);
+    
+    // Simulate payment processing time
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Simulate occasional payment failures (5% chance)
+    if (Math.random() < 0.05) {
+      throw new Error(`Payment failed for order ${orderId}`);
+    }
+    
+    console.log(`✅ Payment processed successfully for order ${orderId}`);
+  }
   
-  return await Worker.create({
-    workflowsPath: require.resolve('../workflows'),
-    activities: require('../activities'),
-    taskQueue: env.TASK_QUEUE,
+  export async function fulfillOrder(
+    orderId: string, 
+    items: Array<{ id: string; quantity: number }>
+  ): Promise<void> {
+    console.log(`📦 Fulfilling order ${orderId} with ${items.length} items`);
     
-    // Production settings
-    maxConcurrentActivityTaskExecutions: env.MAX_CONCURRENT_ACTIVITIES,
-    maxConcurrentWorkflowTaskExecutions: env.MAX_CONCURRENT_WORKFLOWS,
+    // Simulate fulfillment processing (longer operation)
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
-    // Logging configuration
-    sinks: {
-      logger: {
-        info: (message, meta) => console.log(JSON.stringify({
-          level: 'info',
-          message,
-          ...meta,
-          timestamp: new Date().toISOString(),
-        })),
-        error: (message, meta) => console.error(JSON.stringify({
-          level: 'error', 
-          message,
-          ...meta,
-          timestamp: new Date().toISOString(),
-        })),
-      },
-    },
+    console.log(`✅ Order ${orderId} fulfilled successfully`);
+  }
+  
+  export async function cancelOrder(orderId: string, reason: string): Promise<void> {
+    console.log(`❌ Cancelling order ${orderId}. Reason: ${reason}`);
+    
+    // Simulate cancellation cleanup
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    console.log(`✅ Order ${orderId} cancelled successfully`);
+  }
+  
+  export async function sendOrderNotification(
+    customerId: string, 
+    message: string, 
+    orderId: string
+  ): Promise<void> {
+    console.log(`📧 Sending notification to customer ${customerId}: ${message} (Order: ${orderId})`);
+    
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    console.log(`✅ Notification sent successfully`);
+  }
+  
+```
+{% endcode %}
 
-    // Health check endpoint
-    enableNonLocalActivities: true,
+### Client Interaction Patterns <a href="#client-interaction-patterns" id="client-interaction-patterns"></a>
+
+The repository demonstrates how external systems interact with workflows using signals and queries:
+
+{% code title="examples/04-production-patterns/signal-query-client.ts" overflow="wrap" %}
+```typescript
+import { Client } from '@temporalio/client';
+import { 
+  orderManagementWorkflow, 
+  cancelOrderSignal, 
+  updateOrderSignal,
+  getOrderStatusQuery,
+  getOrderUpdatesQuery 
+} from './order-management-workflow';
+
+async function demonstrateSignalsAndQueries() {
+  const client = new Client();
+
+  const testOrder = {
+    orderId: `signal-demo-${Date.now()}`,
+    customerId: 'demo-customer-123',
+    items: [
+      { id: 'product-1', quantity: 2 },
+      { id: 'product-2', quantity: 1 }
+    ]
+  };
+
+  console.log('🚀 Starting order management workflow...');
+
+  // Start the workflow
+  const handle = await client.workflow.start(orderManagementWorkflow, {
+    taskQueue: 'order-management',
+    workflowId: `order-mgmt-${Date.now()}`,
+    args: [testOrder],
   });
+
+  console.log(`📋 Workflow started: ${handle.workflowId}`);
+
+  // Query initial status
+  await sleep(500);
+  let status = await handle.query(getOrderStatusQuery);
+  console.log(`📊 Initial status: ${status}`);
+
+  // Wait a bit, then query status during processing
+  await sleep(1000);
+  status = await handle.query(getOrderStatusQuery);
+  const updates = await handle.query(getOrderUpdatesQuery);
+  console.log(`📊 Current status: ${status}`);
+  console.log(`📝 Updates so far:`, updates);
+
+  // Send an update signal
+  await handle.signal(updateOrderSignal, 'priority', 'HIGH');
+  console.log('📡 Sent update signal: priority = HIGH');
+
+  // Demonstrate cancellation (uncomment to test cancellation)
+  // await sleep(2000);
+  // await handle.signal(cancelOrderSignal, 'Customer requested cancellation');
+  // console.log('📡 Sent cancellation signal');
+
+  // Wait for completion and get final status
+  try {
+    const result = await handle.result();
+    console.log(`✅ Final result: ${result}`);
+
+    const finalUpdates = await handle.query(getOrderUpdatesQuery);
+    console.log(`📝 Final updates:`, finalUpdates);
+  } catch (error) {
+    console.log(`❌ Workflow failed: ${error}`);
+  }
 }
 
-async function main() {
-  const worker = await createProductionWorker();
-  
-  // Graceful shutdown
-  process.on('SIGINT', () => worker.shutdown());
-  process.on('SIGTERM', () => worker.shutdown());
-  
-  console.log('Production worker started');
-  await worker.run();
+// Helper function for delays
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-main().catch((err) => {
-  console.error('Worker failed:', err);
+demonstrateSignalsAndQueries().catch(console.error);
+```
+{% endcode %}
+
+### Production Worker Configuration <a href="#production-worker-configuration" id="production-worker-configuration"></a>
+
+The repository includes production-ready worker setup:
+
+{% code title="src/worker.ts " overflow="wrap" %}
+```typescript
+
+import { Worker } from '@temporalio/worker';
+import * as helloActivities from './activities/hello-activities';
+import * as orderActivities from '../examples/02-error-handling/order-activities';
+import * as managementActivities from '../examples/04-production-patterns/management-activities';
+
+async function run() {
+  // Original hello-world worker
+  const helloWorker = await Worker.create({
+    workflowsPath: require.resolve('./workflows/hello-workflow'),
+    activities: helloActivities,
+    taskQueue: 'hello-world',
+  });
+
+  // Order processing worker
+  const orderWorker = await Worker.create({
+    workflowsPath: require.resolve('../examples/02-error-handling/order-processing-workflow'),
+    activities: orderActivities,
+    taskQueue: 'order-processing',
+  });
+
+  // Production patterns worker (NEW)
+  const managementWorker = await Worker.create({
+    workflowsPath: require.resolve('../examples/04-production-patterns/order-management-workflow'),
+    activities: managementActivities,
+    taskQueue: 'order-management',
+  });
+
+  console.log('🚀 Workers are running...');
+  console.log('📋 Task queues: hello-world, order-processing, order-management');
+  
+  // Run all workers concurrently
+  await Promise.all([
+    helloWorker.run(),
+    orderWorker.run(),
+    managementWorker.run(),
+  ]);
+}
+
+run().catch((err) => {
+  console.error(err);
   process.exit(1);
 });
 ```
+{% endcode %}
 
-### Deployment with Docker <a href="#deployment-with-docker" id="deployment-with-docker"></a>
+### Running the Production Example <a href="#running-the-production-example" id="running-the-production-example"></a>
 
-Production deployment configuration:
+Test the signals and queries implementation:
 
-```docker
-# From: docker-compose.production.yml
-version: '3.8'
-services:
-  temporal-worker:
-    build: .
-    environment:
-      - NODE_ENV=production
-      - TEMPORAL_ADDRESS=temporal-server:7233
-      - TASK_QUEUE=production-queue
-      - MAX_CONCURRENT_ACTIVITIES=10
-      - MAX_CONCURRENT_WORKFLOWS=5
-    depends_on:
-      - temporal-server
-    deploy:
-      replicas: 3
-      restart_policy:
-        condition: on-failure
-        max_attempts: 3
-        
-  temporal-server:
-    image: temporalio/temporal:latest
-    ports:
-      - "7233:7233"
-      - "8233:8233"
-    environment:
-      - DB=postgresql
-      - POSTGRES_DSN=postgresql://temporal:temporal@postgres:5432/temporal
-      
-  postgres:
-    image: postgres:13
-    environment:
-      POSTGRES_DB: temporal
-      POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
-```
-
-### Key Production Considerations <a href="#key-production-considerations" id="key-production-considerations"></a>
-
-### Scalability
-
-* Multiple worker instances
-* Horizontal scaling
-* Load balancing
-
-### Reliability
-
-* Graceful shutdowns
-* Health checks
-* Circuit breakers
-
-### Observability
-
-* Structured logging
-* Metrics collection
-* Distributed tracing
-
-### Security
-
-* TLS encryption
-* Authentication
-* Authorization
-
-### Running in Production <a href="#running-in-production" id="running-in-production"></a>
-
-Deploy your Temporal application:
-
+{% code overflow="wrap" %}
 ```bash
-# Build and deploy
-docker-compose -f docker-compose.production.yml up -d
+# Start the multi-queue worker
+npm run start:worker
 
-# Monitor logs
-docker-compose logs -f temporal-worker
+# In another terminal, run the signals/queries demo
+npx ts-node examples/04-production-patterns/signal-query-client.ts
+```
+{% endcode %}
 
-# Scale workers
-docker-compose up -d --scale temporal-worker=5
+### Expected Output <a href="#expected-output" id="expected-output"></a>
 
-# Health check
-curl http://localhost:8080/health
+**Successful execution with real-time updates:**
+
+```
+text🚀 Starting order management workflow...
+📋 Workflow started: order-mgmt-1697123456789
+📊 Initial status: PENDING
+💳 Processing payment for order signal-demo-1697123456789, customer demo-customer-123
+📊 Current status: PROCESSING
+📝 Updates so far: [
+  'Order created',
+  'Processing payment...'
+]
+📡 Sent update signal: priority = HIGH
+✅ Payment processed successfully for order signal-demo-1697123456789
+📦 Fulfilling order signal-demo-1697123456789 with 2 items
+✅ Order signal-demo-1697123456789 fulfilled successfully
+📧 Sending notification to customer demo-customer-123: Order completed (Order: signal-demo-1697123456789)
+✅ Notification sent successfully
+✅ Final result: Order signal-demo-1697123456789 completed successfully
+📝 Final updates: [
+  'Order created',
+  'Processing payment...',
+  'Payment processed successfully',
+  'Updated priority to HIGH',
+  'Starting fulfillment...',
+  'Order fulfilled successfully'
+]
 ```
 
-### Congratulations! 🎉 <a href="#congratulations" id="congratulations"></a>
+### Key Production Patterns Demonstrated <a href="#key-production-patterns-demonstrated" id="key-production-patterns-demonstrated"></a>
 
-You've built a complete Temporal TypeScript SDK guide covering:
+### 1. Signal Handling
 
-* **Setup and basic workflows**
-* **Error handling with Saga pattern**
-* **Comprehensive testing strategies**
-* **Production-ready patterns**
+{% code overflow="wrap" %}
+```typescript
+// Define and handle external signals
+const cancelOrderSignal = defineSignal<[string]>('cancelOrder');
+setHandler(cancelOrderSignal, (reason: string) => {
+  shouldCancel = true;
+  cancellationReason = reason;
+});
+```
+{% endcode %}
 
-Your documentation showcases real, working code that developers can immediately use in production. This positions you as a Temporal expert and thought leader in distributed systems!
+### 2. Query Implementation
 
-**What's Next?**
+{% code overflow="wrap" %}
+```typescript
+// Provide real-time state access
+const getOrderStatusQuery = defineQuery<string>('getOrderStatus');
+setHandler(getOrderStatusQuery, () => order.status);
+```
+{% endcode %}
 
-* Share your GitBook with the Temporal community
-* Add screenshots and polish the formatting
-* Submit to Temporal's community resources
-* Build your reputation as a distributed systems expert
+### 3. Race Conditions
 
-Great work building this comprehensive SDK guide! -----:)
+{% code overflow="wrap" %}
+```typescript
+// Handle competing operations
+const fulfillmentPromise = fulfillOrder(order.orderId, order.items);
+const cancellationPromise = condition(() => shouldCancel);
+await Promise.race([fulfillmentPromise, cancellationPromise]);
+```
+{% endcode %}
+
+### 4. State Management
+
+{% code overflow="wrap" %}
+```typescript
+// Track workflow state for external visibility
+let order: Order = {
+  orderId,
+  status: 'PENDING',
+  updates: ['Order created']
+};
+```
+{% endcode %}
+
+### Production Benefits <a href="#production-benefits" id="production-benefits"></a>
+
+* **Real-time communication** with external systems
+* **Dynamic workflow control** via signals
+* **Live status monitoring** via queries
+* **Cancellation support** for long-running operations
+* **Audit trails** with update tracking
+
+These patterns enable production systems with human-in-the-loop processes, dynamic business rules, and real-time monitoring capabilities.
+
+### Congratulations!  <a href="#congratulations" id="congratulations"></a>
+
+This guide demonstrates a complete Temporal TypeScript implementation covering:
+
+* **Basic workflow setup** and execution
+* **Error handling** with compensation patterns
+* **Comprehensive testing** strategies
+* **Production patterns** with signals and queries
+
+The implementation showcases enterprise-ready distributed system patterns that can handle complex business processes with reliability and observability.
