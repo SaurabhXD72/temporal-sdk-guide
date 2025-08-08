@@ -26,7 +26,9 @@ Activities are the building blocks of Temporal workflows. Here's a simple greeti
 
 
 
-// From: src/activities.ts\
+// From: src/activities.ts
+
+\`typescript\`\
 import { log } from '@temporalio/activity';
 
 export async function greet(name: string): Promise\<string> {\
