@@ -206,7 +206,4 @@ INFO: Payment refunded { orderId: 'ORD-123' }
 * **Clear error tracking** with structured logging
 * **Business continuity** even when services fail
 
-Ready to learn how to test these complex workflows? Let's dive into testing strategies!
-
-\
-gies! →
+Ready to learn how to test these complex workflows? Let's dive into testing strategies! --->

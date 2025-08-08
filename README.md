@@ -51,5 +51,5 @@ This guide follows a hands-on approach with real code examples:
 * **Comprehensive testing** - Unit, integration, and end-to-end tests
 * **Step-by-step progression** - From basics to advanced patterns
 
-Ready to build resilient distributed systems? Let's start! --->
+Ready to build resilient distributed systems? Let's start! ->
 
