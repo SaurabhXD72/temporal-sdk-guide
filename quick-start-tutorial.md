@@ -166,9 +166,3 @@ Hello, Temporal! Goodbye, Temporal!
 ### Next Steps <a href="#next-steps" id="next-steps"></a>
 
 Now that you have a working Temporal application, let's learn how to handle failures and implement compensation patterns! -->
-
-\
-
-
-```
-```
