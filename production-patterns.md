@@ -428,13 +428,13 @@ let order: Order = {
 
 These patterns enable production systems with human-in-the-loop processes, dynamic business rules, and real-time monitoring capabilities.
 
-### Congratulations :)  <a href="#congratulations" id="congratulations"></a>
+### What You've Accomplished!
 
-You've built a complete Temporal TypeScript system covering:
+You've built a complete production-ready system featuring:
 
-* **Basic workflow setup** and execution
-* **Error handling** with compensation patterns
-* **Comprehensive testing** strategies
-* **Production patterns** with signals and queries
+* Real-time order management with signals and queries
+* Automatic cancellation and status monitoring
+* Multi-worker configuration for scalability
+* Race condition handling for competing operations
 
-The implementation showcases enterprise-ready distributed system patterns that can handle complex business processes with reliability and observability.
+Ready to deploy to production and explore advanced patterns? Continue to Next Steps & Resources ->

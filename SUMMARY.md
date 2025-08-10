@@ -5,3 +5,4 @@
 * [Error Handling & Compensation](error-handling-and-compensation.md)
 * [Testing Strategies](testing-strategies.md)
 * [Production Patterns](production-patterns.md)
+* [Next Steps & Resources](next-steps-and-resources.md)

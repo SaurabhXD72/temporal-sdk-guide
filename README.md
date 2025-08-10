@@ -19,7 +19,7 @@ A comprehensive guide to building production-ready distributed systems with Temp
 
 * Node.js 18+ installed (run `node --version` to check)
 * Basic TypeScript knowledge
-* local IDE of your preference
+* Code editor (VS Code recommended)
 
 ### Quick Installation <a href="#quick-installation" id="quick-installation"></a>
 

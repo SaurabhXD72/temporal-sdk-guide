@@ -19,7 +19,7 @@ npm run start:worker
 npm run start:client
 ```
 
-### Step 2: Create Your First Activity <a href="#step-2-your-first-activity" id="step-2-your-first-activity"></a>
+### Step 2: Create Your First Workflow <a href="#step-2-your-first-activity" id="step-2-your-first-activity"></a>
 
 Activities are the building blocks of Temporal workflows. Here's a simple greeting activity:
 
