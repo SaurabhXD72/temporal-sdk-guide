@@ -2,7 +2,7 @@
 
 ## Quick Start Tutorial <a href="#quick-start-tutorial" id="quick-start-tutorial"></a>
 
-Let's build your first Temporal workflow in TypeScript! This tutorial uses the code from your repository to create a working "Hello World" example.
+Build your first Temporal workflow in TypeScript! This tutorial uses the code from your repository to create a working "Hello World" example.
 
 ### Step 1: Project Setup <a href="#step-1-project-setup" id="step-1-project-setup"></a>
 
@@ -19,7 +19,7 @@ npm run start:worker
 npm run start:client
 ```
 
-### Step 2: Your First Activity <a href="#step-2-your-first-activity" id="step-2-your-first-activity"></a>
+### Step 2: Create Your First Activity <a href="#step-2-your-first-activity" id="step-2-your-first-activity"></a>
 
 Activities are the building blocks of Temporal workflows. Here's a simple greeting activity:
 
@@ -47,12 +47,12 @@ export async function helloWorkflow(name: string): Promise<string> {
 
 * Activities contain your business logic
 * They can fail and be retried automatically
-* Use `@temporalio/activity` for logging
+* Use console.log() within activities for debugging
 * Keep activities idempotent (safe to run multiple times)
 
 ### Step 3: Your First Workflow <a href="#step-3-your-first-workflow" id="step-3-your-first-workflow"></a>
 
-Workflows orchestrate activities and handle the execution flow:
+Workflows orchestrate the sequence of activities
 
 ```typescript
 // From: src/workflows.ts
@@ -142,7 +142,7 @@ Run these commands to see your workflow in action:
 
 ```bash
 # Terminal 1: Start Temporal
-npm run temporal:start
+temporal server start-dev
 
 # Terminal 2: Start worker  
 npm run start:worker
@@ -165,7 +165,7 @@ Hello, Temporal! Goodbye, Temporal!
 1. **Client** started a workflow execution
 2. **Worker** picked up the workflow task
 3. **Workflow** executed two activities in sequence
-4. **Activities** performed the actual work
+4. **Activities** executed the greeting and farewell logic
 5. **Result** was returned to the client
 
 ### Next Steps <a href="#next-steps" id="next-steps"></a>

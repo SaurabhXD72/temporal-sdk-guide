@@ -1,6 +1,6 @@
 # Testing Strategies
 
-Testing Temporal workflows requires special techniques since workflows are deterministic and stateful. This guide shows you how to test activities, workflows, and end-to-end scenarios using your repository examples.
+Test Temporal workflows using time-skipping and mocking techniques that handle deterministic execution and stateful behavior.
 
 ### Testing Philosophy <a href="#testing-philosophy" id="testing-philosophy"></a>
 
@@ -10,7 +10,7 @@ Temporal applications have three main testing layers:
 2. **Integration Tests** - Test workflows with real Temporal server
 3. **End-to-End Tests** - Test complete business scenarios
 
-### Workflow Unit Testing <a href="#workflow-unit-testing" id="workflow-unit-testing"></a>
+### Write Unit Tests for Workflows <a href="#workflow-unit-testing" id="workflow-unit-testing"></a>
 
 The repository includes comprehensive workflow tests using Temporal's testing framework:
 
@@ -23,7 +23,7 @@ import * as activities from '../02-error-handling/order-activities';
 
 /**
  * Unit tests for order processing workflow
- * Demonstrates Temporal's time-skipping and mocking capabilities
+ * Shows time-skipping and activity mocking for deterministic tests
  */
 describe('Order Processing Workflow', () => {
   let testEnv: TestWorkflowEnvironment;
@@ -119,7 +119,7 @@ describe('Order Processing Workflow', () => {
 
 ### Test Configuration <a href="#test-configuration" id="test-configuration"></a>
 
-The repository includes Jest configuration optimized for Temporal testing:
+Configure Jest for Temporal workflows with these settings:
 
 {% code title="jest.config.ts" overflow="wrap" %}
 ```typescript
@@ -161,7 +161,7 @@ npm run test:integration
 ```
 {% endcode %}
 
-### Key Testing Patterns Demonstrated <a href="#key-testing-patterns-demonstrated" id="key-testing-patterns-demonstrated"></a>
+### Essential Testing Patterns <a href="#key-testing-patterns-demonstrated" id="key-testing-patterns-demonstrated"></a>
 
 ### 1. Time-Skipping Environment
 
@@ -215,7 +215,7 @@ const handle = await client.workflow.start(orderProcessingWorkflow, {
 
 ### Testing Benefits <a href="#testing-benefits" id="testing-benefits"></a>
 
-* **Fast execution** - Time-skipping eliminates real delays
+* **Fast execution** - 5 minute workflows complete in milliseconds
 * **Deterministic results** - Same outcome every run
 * **Error scenario coverage** - Test both success and failure paths
 * **Integration confidence** - End-to-end validation against real server
@@ -225,6 +225,6 @@ const handle = await client.workflow.start(orderProcessingWorkflow, {
 1. **Separate unit and integration tests** for different validation levels
 2. **Mock external dependencies** to isolate workflow logic
 3. **Test compensation logic** to ensure proper error handling
-4. **Use descriptive test names** that explain the scenario being tested
+4. **Write descriptive test names** that explain each scenario
 
 Ready to learn production deployment patterns? Let's explore signals, queries, and monitoring!

@@ -1,8 +1,8 @@
 # Error Handling & Compensation
 
-Error Handling & Compensation
+Handle Errors with Compensation Patterns
 
-Real-world applications need robust error handling. This page demonstrates the **Saga pattern** using your order processing example with compensation workflows.
+Real-world applications need robust error handling. Learn to implement the Saga pattern - when payment succeeds but shipping fails, your system automatically refunds the customer
 
 ### The Business Scenario <a href="#the-business-scenario" id="the-business-scenario"></a>
 
@@ -16,7 +16,7 @@ This repository implements a complete e-commerce order processing system that ha
 **The Challenge**: If any step fails after others complete, you need automatic **compensation** (rollback) to maintain data consistency.
 
 \
-**Saga Pattern Implementation**
+**Implementation of Saga Pattern**
 
 This repository demonstrates this with a complete order processing workflow:
 
@@ -99,7 +99,7 @@ export async function orderProcessingWorkflow(order: OrderRequest): Promise<stri
 ```
 {% endcode %}
 
-### The Activities Implementation <a href="#the-activities-implementation" id="the-activities-implementation"></a>
+### Implement the Activities <a href="#the-activities-implementation" id="the-activities-implementation"></a>
 
 Here are the business logic activities with built-in failure scenarios:
 
@@ -239,7 +239,7 @@ npm run start:worker
 npx ts-node examples/02-error-handling/test-client.ts
 ```
 
-### What You'll Observe <a href="#what-youll-observe" id="what-youll-observe"></a>
+### Expected Results <a href="#what-youll-observe" id="what-youll-observe"></a>
 
 **Successful Order Processing:**
 
@@ -281,7 +281,7 @@ typescriptlet inventoryReserved = false;
 let paymentProcessed = false;
 ```
 
-Track which steps completed to determine what needs compensation.
+Track completion status to know which compensations to run
 
 ### 2. Reverse Order Compensation
 
@@ -316,6 +316,6 @@ typescriptretry: {
 * **Business continuity** even when services fail
 * **Production-ready** error handling patterns
 
-This saga implementation demonstrates enterprise-level distributed transaction handling with Temporal!
+This saga pattern handles distributed transactions reliably in production systems.
 
 Ready to learn how to test these complex workflows? Let's dive into testing strategies! --->

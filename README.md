@@ -10,13 +10,16 @@ A comprehensive guide to building production-ready distributed systems with Temp
 * Build fault-tolerant workflows and activities
 * Handle errors with compensation patterns
 * Test your Temporal applications
-* Deploy to production with confidence
+*   Deploy workflows to production environments
+
+    \
+
 
 ### Prerequisites <a href="#prerequisites" id="prerequisites"></a>
 
-* Node.js 18+ installed
+* Node.js 18+ installed (run `node --version` to check)
 * Basic TypeScript knowledge
-* Docker for local development
+* local IDE of your preference
 
 ### Quick Installation <a href="#quick-installation" id="quick-installation"></a>
 
@@ -48,12 +51,12 @@ This guide follows a hands-on approach with real code examples:
 * **Testing** - Unit tests, integration tests, and mocking
 * **Production Patterns** - Signals, queries, and monitoring
 
-### What Makes This Guide Different <a href="#what-makes-this-guide-different" id="what-makes-this-guide-different"></a>
+### Guide Features <a href="#what-makes-this-guide-different" id="what-makes-this-guide-different"></a>
 
-* **Real working code** - Not just snippets, but complete examples
-* **Production-ready patterns** - Battle-tested approaches
-* **Comprehensive testing** - Unit, integration, and end-to-end tests
-* **Step-by-step progression** - From basics to advanced patterns
+* Complete working examples - Every code sample runs without modification
+* Production-tested patterns - Approaches used in real distributed systems
+* Full testing coverage - Unit tests, integration tests, and mocking strategies
+* Progressive complexity - Start simple, build to advanced production workflows
 
 Ready to build resilient distributed systems? Let's start! ->
 
